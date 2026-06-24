@@ -94,6 +94,57 @@ status_vpn() {
     fi
 }
 logs_vpn() { journalctl -xe | grep -Ei "ppp|pptp" | tail -50; }
+proxmox_enable() {
+    CTID="$1"
+
+    if [ -z "$CTID" ]; then
+        echo "Usage: pptp-manager proxmox enable <CTID>"
+        exit 1
+    fi
+
+    if ! command -v pct >/dev/null 2>&1; then
+        echo "Error: This command must be executed on a Proxmox host."
+        exit 1
+    fi
+
+    CONF="/etc/pve/lxc/${CTID}.conf"
+
+    if [ ! -f "$CONF" ]; then
+        echo "Container configuration not found:"
+        echo "$CONF"
+        exit 1
+    fi
+
+    echo "Loading PPP kernel modules..."
+
+    modprobe ppp_generic || true
+    modprobe ppp_async || true
+    modprobe ppp_deflate || true
+    modprobe ppp_mppe || true
+    modprobe slhc || true
+
+    echo "Updating LXC configuration..."
+
+    grep -q "lxc.cgroup2.devices.allow: c 108:0 rwm" "$CONF" || \
+        echo "lxc.cgroup2.devices.allow: c 108:0 rwm" >> "$CONF"
+
+    grep -q "lxc.mount.entry: /dev/ppp dev/ppp none bind,optional,create=file" "$CONF" || \
+        echo "lxc.mount.entry: /dev/ppp dev/ppp none bind,optional,create=file" >> "$CONF"
+
+    grep -q "^features:" "$CONF" || \
+        echo "features: nesting=1" >> "$CONF"
+
+    echo ""
+    echo "========================================="
+    echo "Proxmox LXC container updated successfully"
+    echo "========================================="
+    echo ""
+    echo "Container ID : $CTID"
+    echo ""
+    echo "Please reboot the container:"
+    echo ""
+    echo "pct reboot $CTID"
+}
 
 menu() {
 while true; do
@@ -123,13 +174,43 @@ done
 }
 
 case "$1" in
- setup) setup_vpn ;;
- start) start_vpn "$2" ;;
- stop) stop_vpn "$2" ;;
- restart) restart_vpn "$2" ;;
- status) status_vpn ;;
- logs) logs_vpn ;;
- *)
-    menu
-    ;;
+    setup)
+        setup_vpn
+        ;;
+
+    start)
+        start_vpn "$2"
+        ;;
+
+    stop)
+        stop_vpn "$2"
+        ;;
+
+    restart)
+        restart_vpn "$2"
+        ;;
+
+    status)
+        status_vpn
+        ;;
+
+    logs)
+        logs_vpn
+        ;;
+
+    proxmox)
+        case "$2" in
+            enable)
+                proxmox_enable "$3"
+                ;;
+            *)
+                echo "Usage:"
+                echo "  pptp-manager proxmox enable <CTID>"
+                ;;
+        esac
+        ;;
+
+    *)
+        menu
+        ;;
 esac
